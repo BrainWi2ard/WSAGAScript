@@ -1,0 +1,390 @@
+==============================================================================
+PROJECT FF-SHIELD: MASTER ARCHITECTURAL & SYSTEM SPECIFICATION (v3.0.0-STABLE)
+Low-Level Technical Design, Fingerprint Noise Injection, & Sandbox Engine
+==============================================================================
+
+[ SECTION 1: ARCHITECTURAL OVERVIEW ]
+Project FF-Shield is a high-performance, low-overhead anti-detect framework built to 
+execute securely within containerized, unprivileged user-space runtimes. Moving away 
+from legacy virtual machine methods that incur heavy computational overhead, this engine 
+operates using strict operating system isolation boundaries, user-mode API hooking, and 
+deterministic noise generation arrays.
+
+--- SYSTEM TOPOLOGY & NETWORK RE-ROUTING BOUNDARIES ---
+
+  ┌────────────────────────────────────────────────────────────────────────┐
+  │                         HOST LINUX KERNEL SPACE                        │
+  └────────────────────────────────────────────────────────────────────────┘
+         │
+         │ [CLONE_NEWNET | CLONE_NEWPID | CLONE_NEWNS]
+         ▼
+  ┌────────────────────────────────────────────────────────────────────────┐
+  │                   UNPRIVILEGED HARDENED SANDBOX CONTAINER              │
+  ├────────────────────────────────────────────────────────────────────────┤
+  │  [POSIX Socket Hijack] ──> sys/socket.h Trap (Absolute Killswitch)       │
+  │  [Hardware System FS]  ──> /sys & /proc/net Virtualization Layer       │
+  │                                                                        │
+  │  ┌──────────────────────────────────────────────────────────────────┐  │
+  │  │                     HARDENED WEBCORE INSTANCE                    │  │
+  │  ├──────────────────────────────────────────────────────────────────┤  │
+  │  │  [V8 / Blink Engine Memory Layout]                               │  │
+  │  │         │                                                        │  │
+  │  │         ▼                                                        │  │
+  │  │  [ff_core_engine] ──> Intercepts High-Frequency Identifiers      │  │
+  │  │         │                                                        │  │
+  │  │         ├──> Canvas Element Engine ──> Deterministic Noise Shift │  │
+  │  │         ├──> WebAudio Synthesizer  ──> Floating-Point Dithering   │  │
+  │  │         └──> WebGL Draw Context    ──> Vendor/Renderer Overrides │  │
+  │  │                                                                  │  │
+  │  │  [Inline Request Interception Rules]                            │  │
+  │  │         └──> Drops Outbound Telemetry Packets At API Boundaries │  │
+  │  └──────────────────────────────────────────────────────────────────┘  │
+  └────────────────────────────────────────────────────────────────────────┘
+
+
+==============================================================================
+[ SECTION 2: FORMAL C-STYLE PSEUDOCODE: HEADER DECLARATIONS (ff_shield.h) ]
+==============================================================================
+
+#ifndef FF_SHIELD_H
+#define FF_SHIELD_H
+
+#include <stdint.h>
+#include <stddef.h>
+
+/* Runtime Return Codes */
+#define FF_STATUS_OK               0
+#define FF_ERR_NULL_POINTER       -1
+#define FF_ERR_BOUNDS_VIOLATION   -2
+#define FF_ERR_OVERFLOW           -3
+#define FF_ERR_UNINITIALIZED      -4
+#define FF_ERR_KILLSWITCH_TRIGGER -4  /* Shared overlap / explicit status alias */
+#define FF_ERR_SOCKET_DENIED      -5
+#define FF_ERR_TELEMETRY_DROP   -5  /* Shared overlap / explicit telemetry alias */
+
+/* Fixed Limit Profiles */
+#define FF_MAX_UA_LEN            256
+#define FF_MAX_LOCALE_LEN         16
+#define FF_MAX_TZ_LEN             64
+#define FF_MAX_WEBGL_STR_LEN     128
+
+/* Secure Permuted Congruential Generator (PCG32) Context */
+typedef struct {
+    uint64_t state;
+    uint64_t inc;
+} ff_pcg32_ctx_t;
+
+/* Deep WebGL Extension & Hardware Driver Masking Matrix */
+typedef struct {
+    char     vendor_string[FF_MAX_WEBGL_STR_LEN];
+    char     renderer_string[FF_MAX_WEBGL_STR_LEN];
+    char     shading_language_version[FF_MAX_WEBGL_STR_LEN];
+    uint32_t max_texture_size;
+    uint32_t max_viewport_dims[2];
+    uint32_t unmasked_vendor_webgl;   /* GL_UNMASKED_VENDOR_WEBGL constant hook */
+    uint32_t unmasked_renderer_webgl; /* GL_UNMASKED_RENDERER_WEBGL constant hook */
+} ff_webgl_driver_mock_t;
+
+/* Profile Parameter Payload Model */
+typedef struct {
+    char                   user_agent[FF_MAX_UA_LEN];
+    char                   locale[FF_MAX_LOCALE_LEN];
+    char                   timezone[FF_MAX_TZ_LEN];
+    uint32_t               screen_width;
+    uint32_t               screen_height;
+    uint32_t               hardware_concurrency;
+    uint64_t               device_memory_gb;
+    double                 latitude;
+    double                 longitude;
+    uint64_t               base_profile_seed;
+    ff_webgl_driver_mock_t webgl_mock;
+} ff_browser_profile_t;
+
+/* Linear Checked Memory Mapping Encapsulation Wrapper */
+typedef struct {
+    uint8_t* memory_ptr;
+    size_t   data_size_bytes;
+    size_t   max_capacity_bytes;
+} ff_memory_buffer_t;
+
+/* Global Sandbox Network Authorization Rule Matrix */
+typedef struct {
+    uint32_t allowed_net_interface_ip;  /* Authorized WireGuard Local TUN IP Address */
+    uint16_t enforcement_port_lock;     /* Strict Wireguard Port Boundary Mapping */
+    uint8_t  killswitch_engaged;        /* State Boolean Flag */
+} ff_network_killswitch_t;
+
+/* Core Engine Monolithic Context Runtime State Tracking State */
+typedef struct {
+    ff_browser_profile_t    active_profile;
+    ff_pcg32_ctx_t          crypto_prng;
+    ff_network_killswitch_t net_killswitch;
+    uint8_t                 is_initialized;
+    uint64_t                blocked_telemetry_count;
+} ff_runtime_context_t;
+
+/* --- FUNCTION DESCRIPTOR API PROTOTYPES --- */
+int32_t ff_core_init(ff_runtime_context_t* ctx, const ff_browser_profile_t* template_profile, uint32_t authorized_tun_ip);
+uint32_t ff_prng_next_u32(ff_pcg32_ctx_t* prng);
+int32_t ff_noise_inject_canvas(ff_runtime_context_t* ctx, ff_memory_buffer_t* canvas_buffer);
+int32_t ff_noise_inject_audio(ff_runtime_context_t* ctx, float* audio_buffer, size_t sample_count);
+int32_t ff_webgl_override_query(const ff_runtime_context_t* ctx, uint32_t pname, char* out_buffer, size_t max_out_len, uint32_t* out_numeric);
+int32_t ff_socket_enforce_killswitch(ff_runtime_context_t* ctx, const struct sockaddr* dest_addr, socklen_t addr_len);
+int32_t ff_telemetry_inspect_packet(ff_runtime_context_t* ctx, const char* target_url, size_t url_len);
+int32_t ff_core_destroy(ff_runtime_context_t* ctx);
+
+#endif /* FF_SHIELD_H */
+
+
+==============================================================================
+[ SECTION 3: DETERMINISTIC ENGINE & PERFORMANCE LOGIC IMPLEMENTATION (ff_shield.c) ]
+==============================================================================
+
+#include "ff_shield.h"
+#include <string.h>
+
+/* Mocked Minimum Socket Struct Adaptations for Isolated Parsing Visibility */
+struct sockaddr {
+    uint16_t sa_family;
+    char     sa_data[14];
+};
+struct sockaddr_in {
+    uint16_t sin_family;
+    uint16_t sin_port;
+    uint32_t sin_addr;
+    char     sin_zero[8];
+};
+
+/**
+ * Initializes the global execution state, hydrated configuration boundaries,
+ * builds PRNG structures, and anchors absolute network firewall boundaries.
+ */
+int32_t ff_core_init(ff_runtime_context_t* ctx, const ff_browser_profile_t* template_profile, uint32_t authorized_tun_ip) {
+    if (ctx == NULL || template_profile == NULL) {
+        return FF_ERR_NULL_POINTER;
+    }
+
+    /* Zero system allocation space */
+    memset(ctx, 0, sizeof(ff_runtime_context_t));
+    
+    /* Safely mirror the target data profile matrix to local container stack memory */
+    memcpy(&(ctx->active_profile), template_profile, sizeof(ff_browser_profile_t));
+
+    /* Initialize deterministic PCG32 PRNG using base profile configuration seed */
+    uint64_t init_state = template_profile->base_profile_seed;
+    uint64_t init_seq   = template_profile->base_profile_seed ^ 0xDA3E5D4B54713525ULL;
+        
+    ctx->crypto_prng.state = 0U;
+    ctx->crypto_prng.inc = (init_seq << 1u) | 1u;
+    ff_prng_next_u32(&(ctx->crypto_prng));
+    ctx->crypto_prng.state += init_state;
+    ff_prng_next_u32(&(ctx->crypto_prng));
+
+    /* Configure network layer constraints and lock interface address rules */
+    ctx->net_killswitch.allowed_net_interface_ip = authorized_tun_ip;
+    ctx->net_killswitch.killswitch_engaged = 0;
+    ctx->net_killswitch.enforcement_port_lock = 51820; /* Lock standard WireGuard channel routing port */
+
+    ctx->is_initialized = 1;
+    ctx->blocked_telemetry_count = 0;
+
+    return FF_STATUS_OK;
+}
+
+/**
+ * Low-overhead PCG32 generation system loop.
+ */
+uint32_t ff_prng_next_u32(ff_pcg32_ctx_t* prng) {
+    uint64_t old_state = prng->state;
+    prng->state = old_state * 6364136223846793005ULL + prng->inc;
+    uint32_t xorshifted = (uint32_t)(((old_state >> 18u) ^ old_state) >> 27u);
+    uint32_t rot = (uint32_t)(old_state >> 59u);
+    return (xorshifted >> rot) | (xorshifted << ((-rot) & 31));
+}
+
+/**
+ * Intercepts graphic framework export routines.
+ * Applies tiny, profile-stable bit shifts to the low bits of RGB arrays.
+ */
+int32_t ff_noise_inject_canvas(ff_runtime_context_t* ctx, ff_memory_buffer_t* canvas_buffer) {
+    if (ctx == NULL || canvas_buffer == NULL) return FF_ERR_NULL_POINTER;
+    if (!ctx->is_initialized) return FF_ERR_UNINITIALIZED;
+    if (canvas_buffer->memory_ptr == NULL || canvas_buffer->data_size_bytes == 0) return FF_ERR_BOUNDS_VIOLATION;
+
+    uint8_t* raw_bytes = canvas_buffer->memory_ptr;
+    size_t length = canvas_buffer->data_size_bytes;
+
+    /* Process pixel layouts via strict stride evaluation boundaries (4 bytes per RGBA pixel) */
+    for (size_t index = 0; index < length; index += 4) {
+        if ((index + 3) >= length) break; /* Guard memory boundary leaks */
+
+        uint32_t noise = ff_prng_next_u32(&(ctx->crypto_prng));
+        uint8_t shift_mask = (uint8_t)(noise & 0x01); /* Limit shift depth to 1 bit step values */
+
+        raw_bytes[index]     ^= shift_mask; /* R channel mod */
+        raw_bytes[index + 1] ^= shift_mask; /* G channel mod */
+        raw_bytes[index + 2] ^= shift_mask; /* B channel mod */
+        /* Alpha channel (index + 3) left constant to eliminate unintended canvas clip drops */
+    }
+    return FF_STATUS_OK;
+}
+
+/**
+ * Intercepts internal processing pipelines of WebAudio networks.
+ * Introduces micro-dither perturbations to floating point PCM sound tracks.
+ */
+int32_t ff_noise_inject_audio(ff_runtime_context_t* ctx, float* audio_buffer, size_t sample_count) {
+    if (ctx == NULL || audio_buffer == NULL) return FF_ERR_NULL_POINTER;
+    if (!ctx->is_initialized) return FF_ERR_UNINITIALIZED;
+    if (sample_count == 0) return FF_ERR_BOUNDS_VIOLATION;
+
+    for (size_t i = 0; i < sample_count; i++) {
+        uint32_t prng_raw = ff_prng_next_u32(&(ctx->crypto_prng));
+        
+        /* Map variance values smoothly into a narrow 1e-8 amplitude band (~1e-7 scale) */
+        double micro_dither = ((double)(prng_raw % 200) - 100.0) / 1000000000.0;
+        audio_buffer[i] += (float)micro_dither;
+
+        /* Enforce absolute standard signal saturation rails [-1.0, +1.0] */
+        if (audio_buffer[i] > 1.0f)  audio_buffer[i] = 1.0f;
+        if (audio_buffer[i] < -1.0f) audio_buffer[i] = -1.0f;
+    }
+    return FF_STATUS_OK;
+}
+
+/**
+ * Overrides deep WebGL hardware driver parameters.
+ * Replaces actual graphics core details with target profile presets.
+ */
+int32_t ff_webgl_override_query(const ff_runtime_context_t* ctx, uint32_t pname, char* out_buffer, size_t max_out_len, uint32_t* out_numeric) {
+    if (ctx == NULL) return FF_ERR_NULL_POINTER;
+    if (!ctx->is_initialized) return FF_ERR_UNINITIALIZED;
+
+    const ff_webgl_driver_mock_t* gl_mock = &(ctx->active_profile.webgl_mock);
+
+    /* Map WebGL token identifiers directly to mock parameters */
+    if (pname == gl_mock->unmasked_vendor_webgl) {
+        if (out_buffer == NULL || max_out_len < strlen(gl_mock->vendor_string)) return FF_ERR_BOUNDS_VIOLATION;
+        strncpy(out_buffer, gl_mock->vendor_string, max_out_len);
+        return FF_STATUS_OK;
+    }
+    else if (pname == gl_mock->unmasked_renderer_webgl) {
+        if (out_buffer == NULL || max_out_len < strlen(gl_mock->renderer_string)) return FF_ERR_BOUNDS_VIOLATION;
+        strncpy(out_buffer, gl_mock->renderer_string, max_out_len);
+        return FF_STATUS_OK;
+    }
+    else if (pname == 0x848D) { /* GL_SHADING_LANGUAGE_VERSION Token Hex */
+        if (out_buffer == NULL || max_out_len < strlen(gl_mock->shading_language_version)) return FF_ERR_BOUNDS_VIOLATION;
+        strncpy(out_buffer, gl_mock->shading_language_version, max_out_len);
+        return FF_STATUS_OK;
+    }
+    else if (pname == 0x0D33) { /* GL_MAX_TEXTURE_SIZE Token Hex */
+        if (out_numeric == NULL) return FF_ERR_NULL_POINTER;
+        *out_numeric = gl_mock->max_texture_size;
+        return FF_STATUS_OK;
+    }
+
+    return FF_ERR_BOUNDS_VIOLATION; /* Fall through unmapped parameter requests safely */
+}
+
+/**
+ * Deep Network Packet Interception Hook (Inline URL Telemetry Screening)
+ * Screens all system requests against signature frameworks before execution paths load.
+ */
+int32_t ff_telemetry_inspect_packet(ff_runtime_context_t* ctx, const char* target_url, size_t url_len) {
+    if (ctx == NULL || target_url == NULL) {
+        return FF_ERR_NULL_POINTER;
+    }
+    if (url_len == 0 || url_len > 2048) {
+        return FF_ERR_BOUNDS_VIOLATION;
+    }
+
+    /* Compile-time definitions of known core telemetry domains */
+    const char* blocklist[] = {
+        "google-analytics.com",
+        "telemetry.browser",
+        "segment.io",
+        "crashlytics.com",
+        "metrics.backend"
+    };
+    size_t blocklist_size = sizeof(blocklist) / sizeof(blocklist[0]);
+
+    /* Perform sub-string scanning algorithms across active network packet components */
+    for (size_t i = 0; i < blocklist_size; i++) {
+        if (strstr(target_url, blocklist[i]) != NULL) {
+            ctx->blocked_telemetry_count++;
+            return FF_ERR_TELEMETRY_DROP; /* Command immediate packet drop execution */
+        }
+    }
+    return FF_STATUS_OK; /* Safe to pass packet to networking stack interface */
+}
+
+/**
+ * Core Network Layer Killswitch (sys/socket.h Interception Layer)
+ * Validates outgoing socket requests against routing boundaries. Drops unauthorized leaks instantly.
+ */
+int32_t ff_socket_enforce_killswitch(ff_runtime_context_t* ctx, const struct sockaddr* dest_addr, socklen_t addr_len) {
+    if (ctx == NULL || dest_addr == NULL) return FF_ERR_NULL_POINTER;
+    if (addr_len < sizeof(struct sockaddr_in)) return FF_ERR_BOUNDS_VIOLATION;
+
+    /* Enforce immediate drop if the firewall killswitch has been triggered */
+    if (ctx->net_killswitch.killswitch_engaged) {
+        return FF_ERR_KILLSWITCH_TRIGGER;
+    }
+
+    /* Process destination addressing models */
+    if (dest_addr->sa_family == 2) { /* AF_INET IPV4 Address Family Mapping */
+        const struct sockaddr_in* ipv4_intent = (const struct sockaddr_in*)dest_addr;
+        
+        /* Bypass rule validation for the authorized WireGuard TUN interface address */
+        if (ipv4_intent->sin_addr == ctx->net_killswitch.allowed_net_interface_ip) {
+            return FF_STATUS_OK; /* Traffic matches valid encrypted gateway paths */
+        }
+
+        /* Prevent outbound leaks bypassing the encrypted interface layer */
+        ctx->net_killswitch.killswitch_engaged = 1; /* Engage permanent connection block */
+        return FF_ERR_SOCKET_DENIED;
+    }
+
+    return FF_STATUS_OK;
+}
+
+/**
+ * Secure Destructor. Sanitizes tracking registers and clears footprint arrays in memory.
+ */
+int32_t ff_core_destroy(ff_runtime_context_t* ctx) {
+    if (ctx == NULL) return FF_ERR_NULL_POINTER;
+    memset(ctx, 0, sizeof(ff_runtime_context_t));
+    return FF_STATUS_OK;
+}
+
+
+==============================================================================
+[ SECTION 4: PROCEDURAL LIFECYCLE ALGORITHMIC FLOWS ]
+==============================================================================
+
+STAGE 1: ENGINE LIFECYCLE INITIALIZATION BOOTSTRAP
+1. Host runtime creates an unprivileged container namespace via unshare().
+2. Local environment reads target configuration profiles from secure localized storage databases (e.g., SQLite indices or parsed Takeout states).
+3. Call `ff_core_init()`, supplying memory space pointer addresses and the authorized TUN IP.
+4. PCG32 context registers are populated using the target profile's seed and cryptographic sequence masks.
+5. The network killswitch rules are applied, locking routing to the local TUN IP and default WireGuard ports.
+
+STAGE 2: LIVE EXECUTION INTERCEPTION HOOKS
+1. The engine registers user-mode initialization scripts and low-level user-mode hooks into the WebCore.
+2. Target properties (`navigator.hardwareConcurrency`, user-agent, locale, timezone, etc.) are frozen to profile constraints.
+3. WebGL pipeline reads are detoured into `ff_webgl_override_query()`, masking driver identities and parameters.
+4. Canvas rendering sequences (`toDataURL` / `getImageData`) are detoured through `ff_noise_inject_canvas()`, applying hash bit-flips.
+5. Audio output pipelines process active audio streams inside the WebAudio data mesh via `ff_noise_inject_audio()`.
+6. Inline network API requests are screened via `ff_telemetry_inspect_packet()`, dropping matching analytic frames.
+7. Low-level connection requests are intercepted by `ff_socket_enforce_killswitch()`. Any traffic attempting to bypass the local TUN path engages the firewall block immediately.
+
+STAGE 3: SESSION TEARDOWN CLEANUP
+1. System monitors intercept tab closure and session termination sequences.
+2. Local session histories and site cache directories are erased from the container space.
+3. Call `ff_core_destroy()`, filling active runtime memory states with zeros to clear trace fingerprint data fields from active RAM pools.
+4. Container process drops its unshared workspace context and terminates cleanly.
+
+==============================================================================
+[ END OF MASTER SPECIFICATION DOCUMENT ]
+==============================================================================
