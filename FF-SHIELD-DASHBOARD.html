@@ -1,0 +1,423 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Project FF-Shield: WSA Hardening & Telemetry Command Center</title>
+    <style>
+        :root {
+            --bg-primary: #090d16;
+            --bg-secondary: #111827;
+            --bg-card: #1f293d;
+            --accent-glow: #00ffcc;
+            --accent-secondary: #3b82f6;
+            --text-main: #f3f4f6;
+            --text-muted: #9ca3af;
+            --border-color: #374151;
+            --success-color: #10b981;
+            --warning-color: #f59e0b;
+            --danger-color: #ef4444;
+            --font-mono: 'JetBrains Mono', 'Fira Code', Consolas, monospace;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            background-color: var(--bg-primary);
+            color: var(--text-main);
+            font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            overflow-x: hidden;
+        }
+
+        header {
+            background: var(--bg-secondary);
+            border-bottom: 1px solid var(--border-color);
+            padding: 1rem 2rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .brand {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+        }
+
+        .status-badge {
+            background: rgba(16, 185, 129, 0.15);
+            color: var(--success-color);
+            border: 1px solid var(--success-color);
+            padding: 0.25rem 0.75rem;
+            border-radius: 9999px;
+            font-size: 0.75rem;
+            font-family: var(--font-mono);
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+
+        .main-container {
+            display: grid;
+            grid-template-columns: 1fr 380px;
+            gap: 1.5rem;
+            padding: 1.5rem 2rem;
+            flex: 1;
+            max-width: 1600px;
+            margin: 0 auto;
+            width: 100%;
+        }
+
+        @media (max-width: 1100px) {
+            .main-container {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        .pipeline-workspace {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-color);
+            border-radius: 0.75rem;
+            padding: 1.5rem;
+            display: flex;
+            flex-direction: column;
+            gap: 1.5rem;
+            position: relative;
+        }
+
+        .workspace-title {
+            font-size: 1.125rem;
+            font-weight: 600;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-family: var(--font-mono);
+            color: var(--accent-glow);
+        }
+
+        .svg-canvas-container {
+            flex: 1;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: var(--bg-primary);
+            border-radius: 0.5rem;
+            border: 1px solid var(--border-color);
+            padding: 1rem;
+            min-height: 420px;
+            position: relative;
+        }
+
+        .inspector-panel {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-color);
+            border-radius: 0.75rem;
+            padding: 1.5rem;
+            display: flex;
+            flex-direction: column;
+            gap: 1.25rem;
+        }
+
+        .inspector-header {
+            font-family: var(--font-mono);
+            font-size: 1rem;
+            color: var(--accent-glow);
+            border-bottom: 1px solid var(--border-color);
+            padding-bottom: 0.75rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .property-group {
+            display: flex;
+            flex-direction: column;
+            gap: 0.35rem;
+        }
+
+        .property-label {
+            font-size: 0.75rem;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            color: var(--text-muted);
+            font-family: var(--font-mono);
+        }
+
+        .property-value {
+            background: var(--bg-primary);
+            border: 1px solid var(--border-color);
+            border-radius: 0.35rem;
+            padding: 0.65rem;
+            font-family: var(--font-mono);
+            font-size: 0.85rem;
+            color: var(--text-main);
+            word-break: break-all;
+        }
+
+        .code-snippet {
+            color: #38bdf8;
+        }
+
+        .control-deck {
+            display: flex;
+            gap: 0.75rem;
+            margin-top: auto;
+        }
+
+        .btn {
+            background: var(--bg-card);
+            border: 1px solid var(--border-color);
+            color: var(--text-main);
+            padding: 0.65rem 1.25rem;
+            border-radius: 0.35rem;
+            cursor: pointer;
+            font-family: var(--font-mono);
+            font-size: 0.85rem;
+            transition: all 0.2s ease;
+            flex: 1;
+            text-align: center;
+        }
+
+        .btn:hover {
+            border-color: var(--accent-glow);
+            color: var(--accent-glow);
+            box-shadow: 0 0 10px rgba(0, 255, 204, 0.15);
+        }
+
+        .btn-primary {
+            background: rgba(0, 255, 204, 0.1);
+            border-color: var(--accent-glow);
+            color: var(--accent-glow);
+        }
+
+        .btn-primary:hover {
+            background: rgba(0, 255, 204, 0.2);
+        }
+
+        .legend-bar {
+            display: flex;
+            gap: 1.5rem;
+            font-size: 0.75rem;
+            font-family: var(--font-mono);
+            color: var(--text-muted);
+            padding-top: 0.5rem;
+            border-top: 1px solid var(--border-color);
+        }
+
+        .legend-item {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .legend-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+        }
+
+        /* SVG Interactive Styling */
+        .node-box {
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+        .node-box:hover rect {
+            stroke: var(--accent-glow);
+            filter: drop-shadow(0 0 8px rgba(0, 255, 204, 0.4));
+        }
+        .node-active rect {
+            stroke: var(--accent-glow) !important;
+            fill: #1e293b !important;
+            stroke-width: 2px;
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <div class="brand">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#00ffcc" stroke-width="2"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg>
+            <span style="font-family: var(--font-mono); font-weight: bold; letter-spacing: 0.05em;">PROJECT FF-SHIELD // WSA HARDENING PIPELINE</span>
+        </div>
+        <div class="status-badge">System Ready: C-GAN Active</div>
+    </header>
+
+    <div class="main-container">
+        <div class="pipeline-workspace">
+            <div class="workspace-title">
+                <span>[PIPELINE TOPOLOGY & DATA FLOW]</span>
+                <span id="current-stage-indicator" style="font-size: 0.85rem; color: var(--text-muted);">Stage 1 of 5</span>
+            </div>
+
+            <div class="svg-canvas-container">
+                <svg width="100%" height="100%" viewBox="0 0 900 280" preserveAspectRatio="xMidYMid meet">
+                    <!-- Connecting Paths -->
+                    <path d="M 150 120 L 230 120" stroke="#374151" stroke-width="3" stroke-dasharray="4" />
+                    <path d="M 330 120 L 410 120" stroke="#374151" stroke-width="3" stroke-dasharray="4" />
+                    <path d="M 510 120 L 590 120" stroke="#374151" stroke-width="3" stroke-dasharray="4" />
+                    <path d="M 690 120 L 770 120" stroke="#374151" stroke-width="3" stroke-dasharray="4" />
+
+                    <!-- Node 1: Ingestion -->
+                    <g class="node-box node-active" id="node-0" onclick="selectStage(0)" transform="translate(50, 70)">
+                        <rect width="100" height="100" rx="8" fill="#111827" stroke="#3b82f6" stroke-width="1.5" />
+                        <text x="50" y="45" fill="#f3f4f6" font-size="12" font-family="monospace" text-anchor="middle" font-weight="bold">01</text>
+                        <text x="50" y="65" fill="#9ca3af" font-size="11" font-family="monospace" text-anchor="middle">Ingestion</text>
+                    </g>
+
+                    <!-- Node 2: Activity Parser -->
+                    <g class="node-box" id="node-1" onclick="selectStage(1)" transform="translate(230, 70)">
+                        <rect width="100" height="100" rx="8" fill="#111827" stroke="#374151" stroke-width="1.5" />
+                        <text x="50" y="45" fill="#f3f4f6" font-size="12" font-family="monospace" text-anchor="middle" font-weight="bold">02</text>
+                        <text x="50" y="65" fill="#9ca3af" font-size="11" font-family="monospace" text-anchor="middle">Parser</text>
+                    </g>
+
+                    <!-- Node 3: C-Engine -->
+                    <g class="node-box" id="node-2" onclick="selectStage(2)" transform="translate(410, 70)">
+                        <rect width="100" height="100" rx="8" fill="#111827" stroke="#374151" stroke-width="1.5" />
+                        <text x="50" y="45" fill="#f3f4f6" font-size="12" font-family="monospace" text-anchor="middle" font-weight="bold">03</text>
+                        <text x="50" y="65" fill="#9ca3af" font-size="11" font-family="monospace" text-anchor="middle">C-Engine</text>
+                    </g>
+
+                    <!-- Node 4: C-GAN Trainer -->
+                    <g class="node-box" id="node-3" onclick="selectStage(3)" transform="translate(590, 70)">
+                        <rect width="100" height="100" rx="8" fill="#111827" stroke="#374151" stroke-width="1.5" />
+                        <text x="50" y="45" fill="#f3f4f6" font-size="12" font-family="monospace" text-anchor="middle" font-weight="bold">04</text>
+                        <text x="50" y="65" fill="#9ca3af" font-size="11" font-family="monospace" text-anchor="middle">C-GAN</text>
+                    </g>
+
+                    <!-- Node 5: WSA Patcher -->
+                    <g class="node-box" id="node-4" onclick="selectStage(4)" transform="translate(770, 70)">
+                        <rect width="100" height="100" rx="8" fill="#111827" stroke="#374151" stroke-width="1.5" />
+                        <text x="50" y="45" fill="#f3f4f6" font-size="12" font-family="monospace" text-anchor="middle" font-weight="bold">05</text>
+                        <text x="50" y="65" fill="#9ca3af" font-size="11" font-family="monospace" text-anchor="middle">Patcher</text>
+                    </g>
+                </svg>
+            </div>
+
+            <div class="legend-bar">
+                <div class="legend-item"><div class="legend-dot" style="background: var(--accent-glow);"></div>Active Node</div>
+                <div class="legend-item"><div class="legend-dot" style="background: var(--border-color);"></div>Idle Stage</div>
+                <div class="legend-item"><div class="legend-dot" style="background: var(--success-color);"></div>Verified Hook</div>
+            </div>
+        </div>
+
+        <div class="inspector-panel">
+            <div class="inspector-header">
+                <span id="inspect-title">01 // DATA INGESTION</span>
+                <span id="inspect-status" style="font-size: 0.75rem; color: var(--success-color);">[READY]</span>
+            </div>
+
+            <div class="property-group">
+                <span class="property-label">Execution Script</span>
+                <div class="property-value code-snippet" id="inspect-script">validate_takeout.py</div>
+            </div>
+
+            <div class="property-group">
+                <span class="property-label">Input Source</span>
+                <div class="property-value" id="inspect-input">./data/raw_takeout/ (Mega Archive)</div>
+            </div>
+
+            <div class="property-group">
+                <span class="property-label">Generated Artifact</span>
+                <div class="property-value" id="inspect-output">./data/processed/takeout_features.pt</div>
+            </div>
+
+            <div class="property-group">
+                <span class="property-label">Core Objective</span>
+                <div class="property-value" id="inspect-objective" style="font-family: inherit; font-size: 0.8rem; line-height: 1.4;">
+                    Securely download, decrypt, and validate raw Google Takeout behavioral telemetry schemas.
+                </div>
+            </div>
+
+            <div class="control-deck">
+                <button class="btn" onclick="navigateStage(-1)">Prev</button>
+                <button class="btn btn-primary" onclick="navigateStage(1)">Next Stage</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const stages = [
+            {
+                title: "01 // DATA INGESTION",
+                script: "validate_takeout.py",
+                input: "./data/raw_takeout/ (Mega Archive)",
+                output: "./data/processed/takeout_features.pt",
+                objective: "Securely download, decrypt, and validate raw Google Takeout behavioral telemetry schemas.",
+                status: "[READY]"
+            },
+            {
+                title: "02 // ACTIVITY PARSER",
+                script: "parse_takeout.py",
+                input: "Takeout/Semantic Location History/ & My Activity/",
+                output: "./data/processed/takeout_features.pt",
+                objective: "Process temporal velocity deltas, typing cadence, and spatial transition matrices.",
+                status: "[PARSED]"
+            },
+            {
+                title: "03 // C-ENGINE TELEMETRY",
+                script: "ff_shield.c / ff_shield.h",
+                output: "ff_shield.dll / .so",
+                input: "profile_config.json & PCG32 State",
+                objective: "Initialize deterministic PCG32 PRNG, sub-perceptual canvas/audio dithering, and network killswitches.",
+                status: "[COMPILED]"
+            },
+            {
+                title: "04 // C-GAN SYNTHESIZER",
+                script: "cgan_synthesizer.py",
+                input: "takeout_features.pt",
+                output: "./ml/weights/cgan_generator.pth",
+                objective: "Train 1D TCN Generator & ResNet Discriminator to match empirical manifolds (P_data).",
+                status: "[TRAINED]"
+            },
+            {
+                title: "05 // WSA IMAGE PATCHER",
+                script: "build_wsa.ps1 & Install.ps1",
+                input: "system.vhdx, product.vhdx, services.jar",
+                output: "Hardened WSA Container (v2407)",
+                objective: "Mount VHDX block images, inject C runtime hooks, apply Smali checks, and seal deployment.",
+                status: "[DEPLOYED]"
+            }
+        ];
+
+        let currentStage = 0;
+
+        function selectStage(index) {
+            currentStage = index;
+            updateUI();
+        }
+
+        function navigateStage(direction) {
+            currentStage = (currentStage + direction + stages.length) % stages.length;
+            updateUI();
+        }
+
+        function updateUI() {
+            // Update Nodes
+            for (let i = 0; i < stages.length; i++) {
+                const node = document.getElementById(`node-${i}`);
+                if (i === currentStage) {
+                    node.classList.add('node-active');
+                } else {
+                    node.classList.remove('node-active');
+                }
+            }
+
+            // Update Inspector
+            const stage = stages[currentStage];
+            document.getElementById('inspect-title').innerText = stage.title;
+            document.getElementById('inspect-script').innerText = stage.script;
+            document.getElementById('inspect-input').innerText = stage.input;
+            document.getElementById('inspect-output').innerText = stage.output;
+            document.getElementById('inspect-objective').innerText = stage.objective;
+            document.getElementById('inspect-status').innerText = stage.status;
+            document.getElementById('current-stage-indicator').innerText = `Stage ${currentStage + 1} of 5`;
+        }
+    </script>
+</body>
+</html>
